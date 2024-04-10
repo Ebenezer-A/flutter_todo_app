@@ -1,195 +1,210 @@
 import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
-class TodoList extends StatefulWidget {
-  const TodoList({super.key});
-
-  @override
-  _TodoListState createState() => _TodoListState();
+void main() {
+  runApp(MyApp());
 }
 
-class _TodoListState extends State<TodoList> {
-  late List<Todo> _todos = [];
+class TodoItem {
+  final int id;
+  final String name;
+  final bool isComplete;
 
-   @override
+  TodoItem({required this.id, required this.name, required this.isComplete});
+
+  factory TodoItem.fromJson(Map<String, dynamic> json) {
+    return TodoItem(
+      id: json['id'],
+      name: json['name'],
+      isComplete: json['isComplete'],
+    );
+  }
+}
+
+class MyApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Todo App',
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+      ),
+      home: TodoListScreen(),
+    );
+  }
+}
+
+class TodoListScreen extends StatefulWidget {
+  @override
+  _TodoListScreenState createState() => _TodoListScreenState();
+}
+
+class _TodoListScreenState extends State<TodoListScreen> {
+  late Future<List<TodoItem>> futureTodoItems;
+
+  @override
   void initState() {
     super.initState();
-    _loadTodos();
+    futureTodoItems = fetchTodoItems();
   }
 
-  Future<void> _loadTodos() async {
-    var response = await http.get(Uri.parse('YOUR_API_URL'));
+  Future<List<TodoItem>> fetchTodoItems() async {
+    final response = await http.get(Uri.parse('http://localhost:5272/api/Todo'));
     if (response.statusCode == 200) {
-      List<dynamic> data = jsonDecode(response.body);
-      setState(() {
-        _todos = data.map((item) => Todo.fromJson(item)).toList();
-      });
+      Iterable todoItems = jsonDecode(response.body);
+      return todoItems.map((item) => TodoItem.fromJson(item)).toList();
+    } else {
+      throw Exception('Failed to load todo items');
     }
   }
 
-  void _addTodo() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        String title = '';
-        String description = '';
-
-        return AlertDialog(
-          title: Text('Add Todo'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                decoration: InputDecoration(labelText: 'Title'),
-                onChanged: (value) {
-                  title = value;
-                },
-              ),
-              TextField(
-                decoration: InputDecoration(labelText: 'Description'),
-                onChanged: (value) {
-                  description = value;
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () async {
-                var response = await http.post(
-                  Uri.parse('YOUR_API_URL'),
-                  body: jsonEncode({'title': title, 'description': description}),
-                  headers: {'Content-Type': 'application/json'},
-                );
-                if (response.statusCode == 201) {
-                  _loadTodos();
-                }
-                Navigator.pop(context);
-              },
-              child: Text('Add'),
-            ),
-          ],
-        );
+  Future<void> addTodoItem(String name) async {
+    final response = await http.post(
+      Uri.parse('http://localhost:5272/api/Todo'),
+      headers: <String, String>{
+        'Content-Type': 'application/json; charset=UTF-8',
       },
+      body: jsonEncode(<String, dynamic>{'name': name, 'isComplete': false}),
     );
+
+    if (response.statusCode == 201) {
+      // Refresh the list after adding a new item
+      setState(() {
+        futureTodoItems = fetchTodoItems();
+      });
+    } else {
+      throw Exception('Failed to add todo item');
+    }
   }
 
-  void _editTodo(Todo todo) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        String title = todo.title;
-        String description = todo.description;
-
-        return AlertDialog(
-          title: Text('Edit Todo'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                decoration: InputDecoration(labelText: 'Title'),
-                controller: TextEditingController(text: title),
-                onChanged: (value) {
-                  title = value;
-                },
-              ),
-              TextField(
-                decoration: InputDecoration(labelText: 'Description'),
-                controller: TextEditingController(text: description),
-                onChanged: (value) {
-                  description = value;
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () async {
-                var response = await http.put(
-                  Uri.parse('YOUR_API_URL/${todo.id}'),
-                  body: jsonEncode({'title': title, 'description': description}),
-                  headers: {'Content-Type': 'application/json'},
-                );
-                if (response.statusCode == 200) {
-                  _loadTodos();
-                }
-                Navigator.pop(context);
-              },
-              child: Text('Save'),
-            ),
-          ],
-        );
+  Future<void> updateTodoItem(int id, bool isComplete) async {
+    final response = await http.put(
+      Uri.parse('http://localhost:5272/api/Todo/$id'),
+      headers: <String, String>{
+        'Content-Type': 'application/json; charset=UTF-8',
       },
+      body: jsonEncode(<String, dynamic>{'isComplete': isComplete}),
     );
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to update todo item');
+    }
   }
 
-  void _deleteTodo(Todo todo) async {
-    var response = await http.delete(Uri.parse('YOUR_API_URL/${todo.id}'));
-    if (response.statusCode == 204) {
-      _loadTodos();
+  Future<void> deleteTodoItem(int id) async {
+    final response = await http.delete(
+      Uri.parse('http://localhost:5272/api/Todo/$id'),
+    );
+
+    if (response.statusCode != 204) {
+      throw Exception('Failed to delete todo item');
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_todos == null) {
-      return Center(child: CircularProgressIndicator());
-    }
-
     return Scaffold(
       appBar: AppBar(
         title: Text('Todo List'),
       ),
-      body: ListView.builder(
-        itemCount: _todos.length,
-        itemBuilder: (context, index) {
-          return ListTile(
-            title: Text(_todos[index].title),
-            subtitle: Text(_todos[index].description),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  icon: Icon(Icons.edit),
-                  onPressed: () => _editTodo(_todos[index]),
-                ),
-                IconButton(
-                  icon: Icon(Icons.delete),
-                  onPressed: () => _deleteTodo(_todos[index]),
-                ),
-              ],
-            ),
-          );
-        },
+      body: Center(
+        child: FutureBuilder<List<TodoItem>>(
+          future: futureTodoItems,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return CircularProgressIndicator();
+            } else if (snapshot.hasError) {
+              return Text('Error: ${snapshot.error}');
+            } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+              return Text('No Todo Items Found');
+            } else {
+              return ListView.builder(
+                itemCount: snapshot.data!.length,
+                itemBuilder: (context, index) {
+                  final todoItem = snapshot.data![index];
+                  return ListTile(
+                    title: Text(todoItem.name),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: Icon(Icons.check),
+                          onPressed: () {
+                            updateTodoItem(todoItem.id, !todoItem.isComplete);
+                          },
+                        ),
+                        IconButton(
+                          icon: Icon(Icons.delete),
+                          onPressed: () {
+                            showDialog(
+                              context: context,
+                              builder: (BuildContext context) {
+                                return AlertDialog(
+                                  title: Text('Confirm Deletion'),
+                                  content: Text('Do you want to delete this item?'),
+                                  actions: <Widget>[
+                                    TextButton(
+                                      onPressed: () {
+                                        deleteTodoItem(todoItem.id);
+                                        Navigator.of(context).pop();
+                                      },
+                                      child: Text('Yes'),
+                                    ),
+                                    TextButton(
+                                      onPressed: () {
+                                        Navigator.of(context).pop();
+                                      },
+                                      child: Text('No'),
+                                    ),
+                                  ],
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            }
+          },
+        ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _addTodo,
-        tooltip: 'Add Todo',
+        onPressed: () {
+          showDialog(
+            context: context,
+            builder: (BuildContext context) {
+              final TextEditingController _textFieldController = TextEditingController();
+              return AlertDialog(
+                title: Text('Add Todo Item'),
+                content: TextField(
+                  controller: _textFieldController,
+                  decoration: InputDecoration(hintText: 'Enter item name'),
+                ),
+                actions: <Widget>[
+                  TextButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                    },
+                    child: Text('Cancel'),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      addTodoItem(_textFieldController.text);
+                      Navigator.of(context).pop();
+                    },
+                    child: Text('Add'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
         child: Icon(Icons.add),
       ),
     );
   }
-}
-
-class Todo {
-  final int id;
-  final String title;
-  final String description;
-
-  Todo({
-    required this.id,
-    required this.title,
-    required this.description,
-  });
-
-  factory Todo.fromJson(Map<String, dynamic> json) {
-    return Todo(
-      id: json['id'],
-      title: json['title'],
-      description: json['description'],
-    );
-  }
-
 }
